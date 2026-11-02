@@ -1,0 +1,2122 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>分贝监测台</title>
+<style>
+:root{
+  --ok:#22c55e; --low:#ef4444; --high:#f59e0b; --accent:#38bdf8;
+  --muted:#8b9bb8; --line:#22314a;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;color:#e8eefc;
+  font-family:system-ui,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(1000px 620px at 15% -12%, #17304f 0%, transparent 62%),
+    radial-gradient(900px 520px at 100% 0%, #1b2a47 0%, transparent 58%),
+    #0a0f1a;
+  background-attachment:fixed;
+}
+
+/* ★ 全屏取景器时隐藏主内容，彻底避免穿透 */
+body.cam-fullscreen-active .layout{visibility:hidden}
+body.cam-fullscreen-active .cam-viewer.fullscreen{visibility:visible}
+
+.view{display:none}
+.view.active{display:block}
+
+.layout{
+  display:grid;
+  grid-template-columns:240px minmax(0,1fr);
+  gap:14px;
+  max-width:1500px;
+  margin:0 auto;
+  padding:18px 16px 30px;
+  align-items:start;
+}
+@media(max-width:900px){.layout{grid-template-columns:1fr}}
+
+.clock-side{
+  position:sticky;top:18px;
+  background:linear-gradient(180deg,rgba(30,43,66,.90),rgba(16,24,38,.95));
+  border:1px solid var(--line);border-radius:18px;
+  padding:20px 14px;
+  box-shadow:0 12px 34px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.045);
+  display:flex;flex-direction:column;align-items:center;gap:12px;
+  text-align:center;
+}
+@media(max-width:900px){
+  .clock-side{position:relative;top:auto;flex-direction:row;justify-content:center;gap:20px;flex-wrap:wrap}
+}
+.clock-label{font-size:11px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;font-weight:700}
+.clock-time{
+  font-size:clamp(32px,3.4vw,44px);font-weight:800;letter-spacing:2px;
+  font-variant-numeric:tabular-nums;line-height:1.1;
+  color:#e8eefc;text-shadow:0 0 30px rgba(56,189,248,.4);
+  transition:color .3s,text-shadow .3s;
+}
+.clock-time .sep{animation:blink 1s infinite;opacity:.7}
+@keyframes blink{0%,50%{opacity:1}51%,100%{opacity:.25}}
+.clock-divider{
+  width:60%;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.14),transparent);
+  margin:2px 0;
+}
+@media(max-width:900px){.clock-divider{display:none}}
+.clock-meta{display:flex;flex-direction:column;gap:3px}
+.clock-meta .date{font-size:13px;color:#c8d5ee;font-weight:600;line-height:1.4}
+.clock-meta .week{font-size:12px;color:var(--muted);letter-spacing:2px}
+
+.side-nav{width:100%;display:flex;flex-direction:column;gap:8px;margin-top:6px}
+.nav-btn{
+  appearance:none;border:1px solid #2b3d5c;background:rgba(255,255,255,.045);color:#dbe7ff;
+  padding:10px 12px;border-radius:11px;font-size:13px;font-weight:700;cursor:pointer;
+  transition:.16s;font-family:inherit;width:100%;
+  display:flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap;
+}
+.nav-btn:hover{background:rgba(56,189,248,.15);border-color:#38bdf8;transform:translateY(-1px)}
+.nav-btn:active{transform:translateY(0)}
+.nav-btn .ico{font-size:16px}
+.nav-btn.camera{background:linear-gradient(135deg,rgba(244,114,182,.22),rgba(236,72,153,.12));border-color:rgba(244,114,182,.5)}
+.nav-btn.camera:hover{background:linear-gradient(135deg,rgba(244,114,182,.35),rgba(236,72,153,.2))}
+.nav-btn.stop{background:rgba(239,68,68,.2);border-color:rgba(239,68,68,.5);color:#fca5a5}
+
+/* ============ 取景器（内嵌） ============ */
+.cam-viewer{
+  width:100%;position:relative;border-radius:14px;overflow:hidden;
+  background:#000;
+  aspect-ratio:4/3;
+  display:none;
+}
+.cam-viewer.show{display:block}
+.cam-viewer video{
+  width:100%;height:100%;object-fit:cover;display:block;
+  transform:scaleX(-1);
+}
+.cam-viewer video.no-mirror{transform:none}
+
+.cam-viewer .cam-overlay{
+  position:absolute;inset:0;pointer-events:none;
+  display:flex;flex-direction:column;justify-content:space-between;padding:8px;
+}
+.cam-viewer .cam-top{
+  display:flex;justify-content:space-between;align-items:flex-start;gap:6px;
+}
+.cam-badge{
+  background:rgba(0,0,0,.65);color:#fff;padding:3px 8px;border-radius:7px;
+  font-size:10px;font-variant-numeric:tabular-nums;font-weight:700;
+}
+.cam-rec-badge{
+  background:rgba(239,68,68,.92);color:#fff;padding:3px 10px;border-radius:7px;
+  font-size:10px;font-weight:800;display:none;align-items:center;gap:5px;
+}
+.cam-rec-badge.show{display:inline-flex}
+.cam-rec-dot{width:7px;height:7px;background:#fff;border-radius:50%;animation:recPulse 1s infinite}
+@keyframes recPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.3)}}
+
+.cam-fullscreen-btn{
+  position:absolute;top:8px;right:8px;
+  width:30px;height:30px;border-radius:8px;
+  background:rgba(0,0,0,.65);color:#fff;border:none;cursor:pointer;
+  display:grid;place-items:center;font-size:15px;
+  pointer-events:auto;transition:.15s;
+  z-index:10;
+}
+.cam-fullscreen-btn:hover{background:rgba(56,189,248,.85);transform:scale(1.06)}
+
+.shutter-flash{
+  position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;
+}
+.shutter-flash.fire{animation:shutterFlash .35s ease-out}
+@keyframes shutterFlash{
+  0%{opacity:0}
+  20%{opacity:.9}
+  100%{opacity:0}
+}
+
+.cam-controls{
+  display:flex;gap:6px;flex-wrap:wrap;width:100%;margin-top:2px;
+}
+.cam-mini-btn{
+  flex:1;min-width:0;
+  appearance:none;border:none;border-radius:9px;
+  padding:8px 4px;font-size:11.5px;font-weight:800;cursor:pointer;
+  font-family:inherit;transition:.15s;
+  display:flex;align-items:center;justify-content:center;gap:4px;
+  white-space:nowrap;
+}
+.cam-mini-btn.cap{background:linear-gradient(135deg,#f472b6,#ec4899);color:#fff}
+.cam-mini-btn.rec{background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff}
+.cam-mini-btn.rec.stop{background:linear-gradient(135deg,#fbbf24,#f59e0b);color:#1a0e00}
+.cam-mini-btn.sw{background:rgba(255,255,255,.08);color:#dbe7ff;border:1px solid #2b3d5c}
+.cam-mini-btn:hover{transform:translateY(-1px);filter:brightness(1.08)}
+.cam-mini-btn:active{transform:translateY(0)}
+
+.cam-status{
+  font-size:10.5px;color:var(--muted);text-align:center;line-height:1.5;
+  width:100%;padding:4px 0 0;
+}
+.cam-status b{color:#38bdf8}
+.cam-status .auto{color:#a78bfa;font-weight:700}
+
+/* ★ 全屏取景器：彻底遮挡 */
+.cam-viewer.fullscreen{
+  position:fixed !important;
+  inset:0 !important;
+  z-index:2147483647 !important;
+  width:100vw !important;
+  height:100vh !important;
+  aspect-ratio:auto !important;
+  border-radius:0 !important;
+  background:#000 !important;
+  margin:0 !important;
+}
+.cam-viewer.fullscreen video{object-fit:contain}
+.cam-viewer.fullscreen .cam-fullscreen-btn{
+  top:20px;right:20px;width:44px;height:44px;font-size:22px;
+  z-index:2147483647;
+}
+
+.thumb-strip{
+  display:flex;gap:6px;overflow-x:auto;padding:2px 0;
+  width:100%;
+}
+.thumb-strip:empty{display:none}
+.thumb-strip::-webkit-scrollbar{height:5px}
+.thumb-strip::-webkit-scrollbar-thumb{background:#2b3d5c;border-radius:99px}
+.thumb{
+  width:56px;height:42px;border-radius:6px;flex:none;
+  border:2px solid rgba(255,255,255,.15);
+  object-fit:cover;cursor:pointer;transition:.15s;
+}
+.thumb:hover{border-color:#38bdf8;transform:scale(1.05)}
+
+.content{display:flex;flex-direction:column;gap:14px;min-width:0}
+
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:11px}
+.logo{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:19px;
+  background:linear-gradient(135deg,#38bdf8,#6366f1);box-shadow:0 6px 18px rgba(56,189,248,.35)}
+h1{font-size:19px;margin:0;letter-spacing:.5px}
+.sub{font-size:12px;color:var(--muted);margin-top:3px}
+.actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.badge{padding:7px 14px;border-radius:99px;font-size:13px;font-weight:600;border:1px solid transparent;transition:.25s;white-space:nowrap}
+.badge.idle{background:rgba(139,155,184,.12);color:var(--muted);border-color:rgba(139,155,184,.25)}
+.badge.ok{background:rgba(34,197,94,.15);color:#4ade80;border-color:rgba(34,197,94,.42)}
+.badge.low{background:rgba(239,68,68,.16);color:#f87171;border-color:rgba(239,68,68,.45);animation:pulse 1.15s infinite}
+.badge.high{background:rgba(245,158,11,.16);color:#fbbf24;border-color:rgba(245,158,11,.45)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.btn{appearance:none;border:1px solid #2b3d5c;background:rgba(255,255,255,.045);color:#dbe7ff;
+  padding:9px 16px;border-radius:11px;font-size:14px;cursor:pointer;transition:.16s;font-family:inherit}
+.btn:hover{background:rgba(255,255,255,.1);transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn.primary{background:linear-gradient(135deg,#38bdf8,#3b82f6);color:#04121f;font-weight:800;border:none}
+.btn.danger{background:linear-gradient(135deg,#fb7185,#ef4444);color:#2a0707;font-weight:800;border:none}
+
+.mode-switch{display:flex;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:13px;padding:4px;gap:4px}
+.mode-btn{appearance:none;border:none;background:transparent;color:var(--muted);
+  padding:8px 18px;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;
+  font-family:inherit;transition:.2s;white-space:nowrap}
+.mode-btn:hover{color:#e8eefc}
+.mode-btn.active{background:linear-gradient(135deg,#38bdf8,#6366f1);color:#04121f;box-shadow:0 4px 14px rgba(56,189,248,.35)}
+.mode-btn.active.study{background:linear-gradient(135deg,#34d399,#059669);box-shadow:0 4px 14px rgba(52,211,153,.35)}
+
+.card{
+  background:linear-gradient(180deg,rgba(30,43,66,.86),rgba(16,24,38,.92));
+  border:1px solid var(--line);border-radius:18px;padding:16px;
+  box-shadow:0 12px 34px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.045);
+}
+.card-title{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.6px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.32fr) minmax(310px,.9fr);gap:14px}
+@media(max-width:1100px){.grid{grid-template-columns:1fr}}
+
+.gauge-card{position:relative;min-height:420px;padding:0;overflow:hidden}
+#gauge{position:absolute;inset:0;width:100%;height:100%;display:block}
+.gauge-center{
+  position:absolute;left:0;right:0;top:52%;transform:translateY(-50%);
+  text-align:center;pointer-events:none;
+  padding:0 14px;
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+}
+
+.gauge-inner{
+  display:inline-flex;flex-direction:column;align-items:center;gap:8px;
+  position:relative;z-index:3;
+}
+.gauge-inner.warn-low{animation:shakeLow .5s infinite}
+.gauge-inner.warn-high{animation:shakeHigh .4s infinite}
+@keyframes shakeLow{
+  0%,100%{transform:translateX(0)}
+  25%{transform:translateX(-5px)}
+  75%{transform:translateX(5px)}
+}
+@keyframes shakeHigh{
+  0%,100%{transform:translate(0,0)}
+  20%{transform:translate(-4px,1px)}
+  40%{transform:translate(4px,-1px)}
+  60%{transform:translate(-3px,2px)}
+  80%{transform:translate(3px,-2px)}
+}
+
+.db-value{
+  font-size:clamp(64px,11vw,120px);font-weight:900;line-height:1;letter-spacing:-3px;
+  font-variant-numeric:tabular-nums;transition:color .22s;
+  text-shadow:0 0 45px currentColor;
+}
+.db-value small{font-size:.24em;font-weight:700;margin-left:8px;letter-spacing:0;color:var(--muted);text-shadow:none}
+
+.hint{
+  font-size:clamp(18px,2.6vw,30px);
+  font-weight:800;
+  letter-spacing:1px;
+  transition:color .22s;
+  line-height:1.3;
+  max-width:100%;
+}
+.hint.idle{color:var(--muted);font-weight:600;font-size:clamp(14px,2vw,18px)}
+.hint.low{color:#f87171;text-shadow:0 0 22px rgba(239,68,68,.85);animation:hintShake .5s infinite}
+.hint.high{color:#fbbf24;text-shadow:0 0 22px rgba(245,158,11,.85);animation:hintShake .4s infinite}
+.hint.ok{color:#4ade80;text-shadow:0 0 22px rgba(34,197,94,.65);animation:hintBreath 2.4s infinite}
+@keyframes hintShake{
+  0%,100%{transform:translateX(0) scale(1)}
+  25%{transform:translateX(-4px) scale(1.02)}
+  75%{transform:translateX(4px) scale(1.02)}
+}
+@keyframes hintBreath{
+  0%,100%{opacity:.85;transform:scale(1)}
+  50%{opacity:1;transform:scale(1.04)}
+}
+
+.warn-glow{
+  position:absolute;inset:0;border-radius:18px;pointer-events:none;
+  opacity:0;transition:opacity .3s;z-index:1;
+}
+.gauge-card.warn-low .warn-glow{
+  opacity:1;
+  background:radial-gradient(circle at center, rgba(239,68,68,.34), transparent 68%);
+  animation:glowPulse 1s infinite;
+}
+.gauge-card.warn-high .warn-glow{
+  opacity:1;
+  background:radial-gradient(circle at center, rgba(245,158,11,.34), transparent 68%);
+  animation:glowPulse .7s infinite;
+}
+.gauge-card.warn-ok .warn-glow{
+  opacity:1;
+  background:radial-gradient(circle at center, rgba(34,197,94,.10), transparent 70%);
+  animation:glowBreath 3s infinite;
+}
+@keyframes glowPulse{0%,100%{opacity:.5}50%{opacity:1}}
+@keyframes glowBreath{0%,100%{opacity:.4}50%{opacity:.85}}
+
+.ripple{
+  position:absolute;left:50%;top:52%;transform:translate(-50%,-50%);
+  border-radius:50%;pointer-events:none;opacity:0;z-index:2;
+}
+.gauge-card.warn-low .ripple{
+  width:200px;height:200px;
+  border:3px solid rgba(239,68,68,.7);
+  animation:rippleOut 1.4s infinite;
+}
+.gauge-card.warn-high .ripple{
+  width:200px;height:200px;
+  border:3px solid rgba(245,158,11,.7);
+  animation:rippleOut .9s infinite;
+}
+@keyframes rippleOut{
+  0%{transform:translate(-50%,-50%) scale(.5);opacity:.9}
+  100%{transform:translate(-50%,-50%) scale(2.6);opacity:0}
+}
+
+.alert-banner{
+  position:absolute;top:12px;left:50%;transform:translateX(-50%);
+  padding:8px 24px;border-radius:99px;font-size:15px;font-weight:800;letter-spacing:1px;
+  opacity:0;transition:.3s;pointer-events:none;z-index:5;white-space:nowrap;
+}
+.gauge-card.warn-low .alert-banner{
+  opacity:1;background:rgba(239,68,68,.9);color:#fff;
+  box-shadow:0 4px 20px rgba(239,68,68,.6);
+  animation:bannerFlash 1s infinite;
+}
+.gauge-card.warn-high .alert-banner{
+  opacity:1;background:rgba(245,158,11,.92);color:#1a0e00;
+  box-shadow:0 4px 20px rgba(245,158,11,.6);
+  animation:bannerFlash .7s infinite;
+}
+@keyframes bannerFlash{0%,100%{transform:translateX(-50%) scale(1)}50%{transform:translateX(-50%) scale(1.08)}}
+
+.side{display:flex;flex-direction:column;gap:14px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06);border-radius:13px;padding:11px 13px}
+.stat .k{font-size:12px;color:var(--muted);margin-bottom:6px}
+.stat .v{font-size:21px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+
+.record-bars{margin-top:6px}
+.rb{margin-bottom:9px}
+.rb-top{display:flex;justify-content:space-between;font-size:12px;color:#c8d5ee;margin-bottom:5px}
+.rb-top b{font-variant-numeric:tabular-nums}
+.rb-track{height:9px;border-radius:99px;background:rgba(255,255,255,.06);overflow:hidden;position:relative}
+.rb-fill{height:100%;border-radius:99px;transition:width .3s ease;width:0%}
+.rb-fill.ok{background:linear-gradient(90deg,#22c55e,#4ade80)}
+.rb-fill.low{background:linear-gradient(90deg,#ef4444,#f87171)}
+.rb-fill.high{background:linear-gradient(90deg,#f59e0b,#fbbf24)}
+
+.compare-card{padding:16px}
+.cmp-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:600px){.cmp-row{grid-template-columns:1fr}}
+.cmp{
+  border-radius:14px;padding:14px 16px;position:relative;overflow:hidden;
+  border:1px solid rgba(255,255,255,.06);
+}
+.cmp.ok{background:linear-gradient(135deg,rgba(34,197,94,.16),rgba(34,197,94,.04))}
+.cmp.bad{background:linear-gradient(135deg,rgba(239,68,68,.16),rgba(245,158,11,.05))}
+.cmp .lbl{font-size:13px;font-weight:700;letter-spacing:.5px;display:flex;align-items:center;gap:6px}
+.cmp.ok .lbl{color:#4ade80}
+.cmp.bad .lbl{color:#f87171}
+.cmp .big{font-size:clamp(32px,4.5vw,44px);font-weight:800;font-variant-numeric:tabular-nums;
+  letter-spacing:-1px;margin-top:6px;line-height:1}
+.cmp.ok .big{color:#4ade80}
+.cmp.bad .big{color:#f87171}
+.cmp .pct{font-size:13px;color:var(--muted);margin-top:6px}
+
+.sum-bar{height:16px;border-radius:99px;overflow:hidden;display:flex;background:rgba(255,255,255,.06);margin-top:14px}
+.sum-seg{height:100%;transition:width .3s ease}
+.sum-seg.ok{background:linear-gradient(90deg,#22c55e,#4ade80)}
+.sum-seg.low{background:linear-gradient(90deg,#ef4444,#f87171)}
+.sum-seg.high{background:linear-gradient(90deg,#f59e0b,#fbbf24)}
+.sum-legend{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)}
+.sum-legend span{display:flex;align-items:center;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+
+.ctl{display:block;margin-bottom:15px}
+.ctl-top{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:9px;color:#c8d5ee}
+.ctl-top b{color:var(--accent);font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:6px;border-radius:99px;
+  background:linear-gradient(90deg,#2b3d5c,#22314a);outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+  background:linear-gradient(135deg,#38bdf8,#6366f1);border:2px solid #0b1220;
+  box-shadow:0 2px 10px rgba(56,189,248,.55);cursor:pointer}
+input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;border:2px solid #0b1220;
+  background:#38bdf8;box-shadow:0 2px 10px rgba(56,189,248,.55);cursor:pointer}
+input[type=range].vol::-webkit-slider-thumb{
+  background:linear-gradient(135deg,#fbbf24,#f59e0b);
+  box-shadow:0 2px 10px rgba(245,158,11,.65);
+}
+input[type=range].vol::-moz-range-thumb{background:#fbbf24;box-shadow:0 2px 10px rgba(245,158,11,.65)}
+
+.row{display:flex;align-items:center;justify-content:space-between;font-size:13px;color:#c8d5ee;margin-top:4px;gap:10px}
+.switch{position:relative;width:46px;height:25px;border-radius:99px;background:#2a3a56;transition:.22s;cursor:pointer;flex:none}
+.switch.on{background:linear-gradient(135deg,#22c55e,#16a34a)}
+.switch::after{content:'';position:absolute;top:3px;left:3px;width:19px;height:19px;border-radius:50%;
+  background:#fff;transition:.22s;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.switch.on::after{transform:translateX(21px)}
+.tip{font-size:11.5px;color:#6f7f9c;line-height:1.65;margin:14px 0 0}
+
+.test-btn{
+  appearance:none;border:1px solid #3a4d70;background:rgba(251,191,36,.12);color:#fbbf24;
+  padding:5px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;
+  font-family:inherit;transition:.16s;flex:none;
+}
+.test-btn:hover{background:rgba(251,191,36,.22);border-color:#fbbf24}
+.test-btn:active{transform:scale(.96)}
+
+.marks{max-height:180px;overflow-y:auto;font-size:12px;font-variant-numeric:tabular-nums}
+.marks::-webkit-scrollbar{width:6px}
+.marks::-webkit-scrollbar-thumb{background:#2b3d5c;border-radius:99px}
+.mark{display:flex;justify-content:space-between;padding:6px 9px;border-radius:9px;margin-bottom:5px;
+  background:rgba(255,255,255,.03);border-left:3px solid #8b9bb8}
+.mark.ok{border-left-color:#22c55e}
+.mark.low{border-left-color:#ef4444}
+.mark.high{border-left-color:#f59e0b}
+.mark .t{color:var(--muted)}
+.mark .tag{font-size:10px;padding:1px 7px;border-radius:99px;background:rgba(255,255,255,.07);color:var(--muted);margin-left:6px}
+
+.bottom{display:grid;grid-template-columns:1fr 1.5fr;gap:14px}
+@media(max-width:760px){.bottom{grid-template-columns:1fr}}
+#bars,#trend{width:100%;height:130px;display:block}
+
+/* ============ 随机点名二级页面 ============ */
+#pageRoll{
+  max-width:1100px;margin:0 auto;padding:18px 16px 30px;
+  display:flex;flex-direction:column;gap:14px;
+  min-height:100vh;
+}
+.roll-header{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+}
+.roll-header .brand{display:flex;align-items:center;gap:11px}
+.roll-header .logo{
+  width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:19px;
+  background:linear-gradient(135deg,#a78bfa,#6366f1);box-shadow:0 6px 18px rgba(139,92,246,.4);
+}
+.roll-title{font-size:19px;margin:0;font-weight:800;letter-spacing:.5px}
+.roll-sub{font-size:12px;color:var(--muted);margin-top:3px}
+
+.roll-stage{
+  background:linear-gradient(180deg,rgba(30,43,66,.86),rgba(16,24,38,.92));
+  border:1px solid var(--line);border-radius:22px;padding:36px 20px;
+  box-shadow:0 12px 34px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.045);
+  text-align:center;position:relative;overflow:hidden;
+  min-height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+}
+.roll-stage::before{
+  content:'';position:absolute;inset:-40%;
+  background:radial-gradient(circle,rgba(139,92,246,.16),transparent 60%);
+  animation:spin 14s linear infinite;pointer-events:none;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.roll-names{
+  font-size:clamp(42px,8vw,92px);font-weight:900;letter-spacing:3px;
+  color:#e8eefc;text-shadow:0 0 40px rgba(139,92,246,.6);
+  position:relative;z-index:2;line-height:1.25;
+  word-break:break-all;
+  transition:font-size .18s,color .15s;
+}
+.roll-names.size-1{font-size:clamp(42px,8vw,92px)}
+.roll-names.size-2{font-size:clamp(32px,6vw,68px)}
+.roll-names.size-3{font-size:clamp(26px,4.6vw,52px)}
+.roll-names.size-4{font-size:clamp(22px,3.6vw,40px)}
+.roll-names.size-5{font-size:clamp(18px,3vw,32px)}
+.roll-names.rolling{color:#a78bfa}
+.roll-hint{font-size:14px;color:var(--muted);position:relative;z-index:2}
+
+.roll-actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;position:relative;z-index:2}
+.roll-btn{
+  appearance:none;border:none;border-radius:14px;
+  padding:16px 44px;font-size:19px;font-weight:900;cursor:pointer;
+  font-family:inherit;letter-spacing:1px;
+  background:linear-gradient(135deg,#a78bfa,#6366f1);color:#fff;
+  box-shadow:0 8px 26px rgba(139,92,246,.5);
+  transition:.18s;
+}
+.roll-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 12px 32px rgba(139,92,246,.65)}
+.roll-btn:active:not(:disabled){transform:translateY(0)}
+.roll-btn:disabled{opacity:.45;cursor:not-allowed;background:linear-gradient(135deg,#4b5563,#374151);box-shadow:none}
+
+.roll-panel{
+  display:grid;grid-template-columns:1fr 1fr;gap:14px;
+}
+@media(max-width:800px){.roll-panel{grid-template-columns:1fr}}
+
+.roll-card{
+  background:linear-gradient(180deg,rgba(30,43,66,.86),rgba(16,24,38,.92));
+  border:1px solid var(--line);border-radius:18px;padding:16px;
+  box-shadow:0 12px 34px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.045);
+}
+.roll-card h3{font-size:13px;color:var(--muted);font-weight:600;letter-spacing:.6px;margin:0 0 12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+
+.roster-textarea{
+  width:100%;min-height:200px;resize:vertical;
+  background:rgba(0,0,0,.28);border:1px solid #2b3d5c;border-radius:12px;
+  color:#e8eefc;font-family:inherit;font-size:14px;line-height:1.7;
+  padding:12px;outline:none;transition:.16s;
+}
+.roster-textarea:focus{border-color:#38bdf8;box-shadow:0 0 0 3px rgba(56,189,248,.16)}
+.roster-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.mini-btn{
+  appearance:none;border:1px solid #2b3d5c;background:rgba(255,255,255,.045);color:#dbe7ff;
+  padding:7px 14px;border-radius:9px;font-size:13px;cursor:pointer;transition:.16s;font-family:inherit;
+}
+.mini-btn:hover{background:rgba(255,255,255,.1)}
+.mini-btn.primary{background:linear-gradient(135deg,#38bdf8,#3b82f6);color:#04121f;font-weight:800;border:none}
+.mini-btn.danger{background:rgba(239,68,68,.2);border-color:rgba(239,68,68,.5);color:#fca5a5}
+
+.roll-opts{display:flex;flex-direction:column;gap:10px}
+.opt-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:14px;color:#c8d5ee}
+.opt-row input[type="number"]{
+  width:70px;background:rgba(0,0,0,.28);border:1px solid #2b3d5c;border-radius:8px;
+  color:#e8eefc;padding:6px 10px;font-family:inherit;font-size:14px;outline:none;
+}
+.opt-row input[type="number"]:focus{border-color:#38bdf8}
+
+.roll-history{max-height:200px;overflow-y:auto;font-size:13px;font-variant-numeric:tabular-nums}
+.roll-history::-webkit-scrollbar{width:6px}
+.roll-history::-webkit-scrollbar-thumb{background:#2b3d5c;border-radius:99px}
+.hist-item{
+  display:flex;justify-content:space-between;gap:10px;padding:7px 10px;
+  border-radius:9px;margin-bottom:5px;background:rgba(255,255,255,.03);
+  border-left:3px solid #a78bfa;
+}
+.hist-item .h-time{color:var(--muted);font-size:12px;flex:none}
+.hist-item .h-name{color:#e8eefc;font-weight:700;text-align:right}
+
+.roll-empty{color:#6f7f9c;font-size:13px;text-align:center;padding:16px}
+</style>
+</head>
+<body>
+
+<!-- ======================================================
+     视图 1：主页面
+====================================================== -->
+<div class="view active" id="pageMain">
+<div class="layout">
+
+  <aside class="clock-side">
+    <div class="clock-label">NOW</div>
+    <div class="clock-time" id="clockTime">
+      <span id="cH">00</span><span class="sep">:</span><span id="cM">00</span><span class="sep">:</span><span id="cS">00</span>
+    </div>
+    <div class="clock-divider"></div>
+    <div class="clock-meta">
+      <div class="date" id="cDate">—</div>
+      <div class="week" id="cWeek">—</div>
+    </div>
+
+    <div class="side-nav">
+      <button class="nav-btn camera" id="btnCamToggle"><span class="ico">📷</span>启动摄像头</button>
+    </div>
+
+    <div class="cam-viewer" id="camViewer">
+      <video id="camVideo" autoplay playsinline muted></video>
+      <div class="shutter-flash" id="shutterFlash"></div>
+      <button class="cam-fullscreen-btn" id="btnFullscreen" title="全屏">⛶</button>
+      <div class="cam-overlay">
+        <div class="cam-top">
+          <div class="cam-badge" id="camTime">--:--:--</div>
+          <div class="cam-rec-badge" id="camRecBadge">
+            <span class="cam-rec-dot"></span>REC <span id="camRecTime">00:00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cam-controls" id="camControls" style="display:none">
+      <button class="cam-mini-btn cap" id="btnCapture">📸 拍照</button>
+      <button class="cam-mini-btn rec" id="btnRecord">⏺ 录像</button>
+      <button class="cam-mini-btn sw" id="btnSwitch">🔄 切换</button>
+    </div>
+
+    <div class="thumb-strip" id="thumbStrip"></div>
+
+    <div class="cam-status" id="camStatus">
+      点「启动摄像头」后开启自动捕捉<br>
+      <span class="auto">每 10 分钟随机拍 9 张 + 录 60 秒</span>
+    </div>
+
+    <div class="side-nav">
+      <button class="nav-btn" id="navRoll"><span class="ico">🎲</span>随机点名</button>
+    </div>
+  </aside>
+
+  <div class="content">
+
+    <header>
+      <div class="brand">
+        <div class="logo" id="logoIcon">📖</div>
+        <div>
+          <h1 id="pageTitle">早读分贝监测台</h1>
+          <div class="sub" id="pageSub">读书模式 · 目标区间 <span id="rangeTip">105–110 dB</span></div>
+        </div>
+      </div>
+      <div class="actions">
+        <div class="mode-switch">
+          <button class="mode-btn active" id="modeRead" data-mode="read">📖 读书模式</button>
+          <button class="mode-btn" id="modeStudy" data-mode="study">✍️ 自习模式</button>
+        </div>
+        <div class="badge idle" id="statusBadge">未开始</div>
+        <button class="btn" id="btnReset">重置统计</button>
+        <button class="btn" id="btnFull">全屏</button>
+        <button class="btn primary" id="btnStart">开始监测</button>
+      </div>
+    </header>
+
+    <main class="grid">
+      <section class="card gauge-card" id="gaugeCard">
+        <div class="warn-glow"></div>
+        <div class="ripple"></div>
+        <div class="alert-banner" id="alertBanner">⚠ 预警</div>
+
+        <canvas id="gauge"></canvas>
+        <div class="gauge-center">
+          <div class="gauge-inner" id="gaugeInner">
+            <div class="db-value" id="dbValue"><span id="dbText">--</span><small>dB</small></div>
+            <div class="hint idle" id="hintText">点击「开始监测」，并允许使用麦克风</div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side">
+        <div class="card">
+          <div class="card-title">本次数据</div>
+          <div class="stats">
+            <div class="stat"><div class="k">达标率</div><div class="v" id="rateText" style="color:#4ade80">--</div></div>
+            <div class="stat"><div class="k">连续达标</div><div class="v" id="streakText">00:00</div></div>
+            <div class="stat"><div class="k">峰值</div><div class="v" id="peakText">--</div></div>
+            <div class="stat"><div class="k">平均</div><div class="v" id="avgText">--</div></div>
+          </div>
+
+          <div class="record-bars" style="margin-top:16px">
+            <div class="rb">
+              <div class="rb-top"><span style="color:#4ade80">✅ 达标时长</span><b id="okDur">00:00</b></div>
+              <div class="rb-track"><div class="rb-fill ok" id="okBar"></div></div>
+            </div>
+            <div class="rb">
+              <div class="rb-top"><span style="color:#f87171">🔻 偏低时长</span><b id="lowDur">00:00</b></div>
+              <div class="rb-track"><div class="rb-fill low" id="lowBar"></div></div>
+            </div>
+            <div class="rb">
+              <div class="rb-top"><span style="color:#fbbf24">🔺 偏高时长</span><b id="highDur">00:00</b></div>
+              <div class="rb-track"><div class="rb-fill high" id="highBar"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">参数调节（实时生效 · 分模式保存）</div>
+
+          <label class="ctl">
+            <div class="ctl-top"><span>目标下限 · 低于此值提醒</span><b id="minVal">105 dB</b></div>
+            <input type="range" id="minRange" min="30" max="130" step="1" value="105">
+          </label>
+
+          <label class="ctl">
+            <div class="ctl-top"><span>目标上限 · 超过算太吵</span><b id="maxVal">110 dB</b></div>
+            <input type="range" id="maxRange" min="30" max="140" step="1" value="110">
+          </label>
+
+          <label class="ctl">
+            <div class="ctl-top"><span>麦克风校准偏移</span><b id="offsetVal">100</b></div>
+            <input type="range" id="offsetRange" min="60" max="150" step="1" value="100">
+          </label>
+
+          <label class="ctl">
+            <div class="ctl-top"><span>平滑度 · 越大读数越稳</span><b id="smoothVal">75%</b></div>
+            <input type="range" id="smoothRange" min="0" max="0.9" step="0.05" value="0.75">
+          </label>
+
+          <label class="ctl">
+            <div class="ctl-top">
+              <span>🔊 提示音音量（<span id="volModeName">读书</span>模式）</span>
+              <b id="volVal">80%</b>
+            </div>
+            <input type="range" class="vol" id="volRange" min="0" max="100" step="5" value="80">
+          </label>
+
+          <div class="row" style="margin-bottom:10px">
+            <button class="test-btn" id="btnTestVoice">▶ 试听提示音</button>
+            <span style="font-size:11px;color:#6f7f9c" id="volHint">内容：请大声朗读</span>
+          </div>
+
+          <div class="row">
+            <span id="soundLabel">音量偏低时发出提示音</span>
+            <div class="switch on" id="soundSwitch"></div>
+          </div>
+
+          <p class="tip" id="tipText">轮盘范围会根据目标上下限自动调整：下限往下留 20 dB、上限往上留 15 dB。读书模式下偏低时提示音会催大家大声读。</p>
+        </div>
+      </aside>
+    </main>
+
+    <section class="card compare-card">
+      <div class="card-title">达标 / 不达标 总对比</div>
+      <div class="cmp-row">
+        <div class="cmp ok">
+          <div class="lbl">✅ 达标总时长</div>
+          <div class="big" id="cmpOk">00:00</div>
+          <div class="pct" id="cmpOkPct">占比 --</div>
+        </div>
+        <div class="cmp bad">
+          <div class="lbl">❌ 不达标总时长</div>
+          <div class="big" id="cmpBad">00:00</div>
+          <div class="pct" id="cmpBadPct">占比 --</div>
+        </div>
+      </div>
+
+      <div class="sum-bar">
+        <div class="sum-seg ok" id="sumOk" style="width:0%"></div>
+        <div class="sum-seg low" id="sumLow" style="width:0%"></div>
+        <div class="sum-seg high" id="sumHigh" style="width:0%"></div>
+      </div>
+      <div class="sum-legend">
+        <span><i class="dot" style="background:#22c55e"></i>达标 <b id="lgOk" style="color:#4ade80">00:00</b></span>
+        <span><i class="dot" style="background:#ef4444"></i>偏低 <b id="lgLow" style="color:#f87171">00:00</b></span>
+        <span><i class="dot" style="background:#f59e0b"></i>偏高 <b id="lgHigh" style="color:#fbbf24">00:00</b></span>
+        <span style="margin-left:auto">总计 <b id="lgTotal" style="color:#c8d5ee">00:00</b></span>
+      </div>
+    </section>
+
+    <section class="bottom">
+      <div class="card">
+        <div class="card-title">实时频谱</div>
+        <canvas id="bars"></canvas>
+      </div>
+      <div class="card">
+        <div class="card-title">音量趋势 · 近 30 秒（绿带为目标区间）</div>
+        <canvas id="trend"></canvas>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-title">
+        <span>🤖 自动记录 · <span id="modeLabel">读书模式</span> · <span id="markSum" style="color:#6f7f9c;font-weight:400">共 0 次</span></span>
+        <span style="font-size:11px;color:#6f7f9c">状态切换自动记录 · 每 30 秒定时记录</span>
+      </div>
+      <div class="marks" id="marksBox">
+        <div style="color:#6f7f9c;font-size:12px;text-align:center;padding:16px">暂无记录</div>
+      </div>
+    </section>
+
+  </div>
+</div>
+</div>
+
+<!-- ======================================================
+     视图 2：随机点名
+====================================================== -->
+<div class="view" id="pageRoll">
+
+  <div class="roll-header">
+    <div class="brand">
+      <div class="logo">🎲</div>
+      <div>
+        <h1 class="roll-title">随机点名</h1>
+        <div class="roll-sub">每次进入自动重置名单 · 抽中即移出 · 可连续抽取</div>
+      </div>
+    </div>
+    <button class="mini-btn" id="btnBackMain">← 返回监测台</button>
+  </div>
+
+  <div class="roll-stage">
+    <div class="roll-names size-1" id="rollNames">准备就绪</div>
+    <div class="roll-hint" id="rollHint">点击下方按钮开始抽取</div>
+    <div class="roll-actions">
+      <button class="roll-btn" id="btnRoll">开始抽取</button>
+      <button class="mini-btn" id="btnResetRoll" style="display:none">🔄 重置名单</button>
+    </div>
+  </div>
+
+  <div class="roll-panel">
+
+    <div class="roll-card">
+      <h3>
+        <span>📋 当前名单（抽中即移出）</span>
+        <span id="rosterCount" style="color:#38bdf8;font-weight:700">0 人</span>
+      </h3>
+      <textarea class="roster-textarea" id="rosterText" placeholder="张三&#10;李四&#10;王五&#10;..."></textarea>
+      <div class="roster-actions">
+        <button class="mini-btn primary" id="btnSaveRoster">保存名单</button>
+        <button class="mini-btn" id="btnGenRoster">恢复默认名单</button>
+        <button class="mini-btn danger" id="btnClearRoster">清空</button>
+      </div>
+    </div>
+
+    <div class="roll-card">
+      <h3>⚙️ 抽取设置</h3>
+      <div class="roll-opts">
+        <div class="opt-row">
+          <span>每次抽取人数</span>
+          <input type="number" id="rollCount" min="1" max="10" value="1">
+        </div>
+        <div class="opt-row">
+          <span>剩余可抽</span>
+          <span style="color:#a78bfa;font-weight:700" id="remainCount">0 人</span>
+        </div>
+        <div class="roster-actions" style="margin-top:6px">
+          <button class="mini-btn" id="btnResetRoll2">🔄 重置名单（恢复全部）</button>
+        </div>
+        <p class="tip" style="margin-top:10px">说明：每次进入点名页会自动恢复为完整名单；点「继续抽取」会从剩余名单中随机抽取 N 人，抽中的人立即移出名单，直到名单抽空。</p>
+      </div>
+
+      <h3 style="margin-top:20px">📜 抽取历史</h3>
+      <div class="roll-history" id="rollHistory">
+        <div class="roll-empty">暂无记录</div>
+      </div>
+      <div class="roster-actions" style="margin-top:8px">
+        <button class="mini-btn danger" id="btnClearHistory">清空历史</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ==================== 通用工具 ==================== */
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b) => Math.min(b, Math.max(a, v));
+const rand = (min, max) => Math.random() * (max - min) + min;
+
+/* ==================== 视图切换 ==================== */
+const pageMain = $('pageMain');
+const pageRoll = $('pageRoll');
+
+const AUTO_RESET_ON_ENTER = true;
+
+function showRoll(){
+  pageMain.classList.remove('active');
+  pageRoll.classList.add('active');
+  window.scrollTo(0, 0);
+  if(AUTO_RESET_ON_ENTER){ resetRosterSilent(); }
+  else { renderRoster(); }
+  updateRemainCount();
+}
+function showMain(){
+  pageRoll.classList.remove('active');
+  pageMain.classList.add('active');
+  window.scrollTo(0, 0);
+}
+$('navRoll').addEventListener('click', showRoll);
+$('btnBackMain').addEventListener('click', showMain);
+
+/* ======================================================
+   分贝监测台逻辑
+====================================================== */
+const gaugeCanvas = $('gauge'), barsCanvas = $('bars'), trendCanvas = $('trend');
+const gaugeCard = $('gaugeCard'), alertBanner = $('alertBanner'), gaugeInner = $('gaugeInner');
+const dbText = $('dbText'), dbValue = $('dbValue'), hintText = $('hintText'), statusBadge = $('statusBadge');
+const rateText = $('rateText'), streakText = $('streakText'), peakText = $('peakText'), avgText = $('avgText');
+const okDur = $('okDur'), lowDur = $('lowDur'), highDur = $('highDur');
+const okBar = $('okBar'), lowBar = $('lowBar'), highBar = $('highBar');
+const cmpOk = $('cmpOk'), cmpBad = $('cmpBad'), cmpOkPct = $('cmpOkPct'), cmpBadPct = $('cmpBadPct');
+const sumOk = $('sumOk'), sumLow = $('sumLow'), sumHigh = $('sumHigh');
+const lgOk = $('lgOk'), lgLow = $('lgLow'), lgHigh = $('lgHigh'), lgTotal = $('lgTotal');
+const btnStart = $('btnStart'), btnReset = $('btnReset'), btnFull = $('btnFull');
+const minRange = $('minRange'), maxRange = $('maxRange'), offsetRange = $('offsetRange'), smoothRange = $('smoothRange');
+const minVal = $('minVal'), maxVal = $('maxVal'), offsetVal = $('offsetVal'), smoothVal = $('smoothVal');
+const volRange = $('volRange'), volVal = $('volVal'), btnTestVoice = $('btnTestVoice');
+const volModeName = $('volModeName'), volHint = $('volHint');
+const soundSwitch = $('soundSwitch'), marksBox = $('marksBox'), markSum = $('markSum');
+const modeRead = $('modeRead'), modeStudy = $('modeStudy');
+const pageTitle = $('pageTitle'), pageSub = $('pageSub'), logoIcon = $('logoIcon');
+const rangeTip = $('rangeTip'), modeLabel = $('modeLabel');
+const soundLabel = $('soundLabel'), tipText = $('tipText');
+const cH = $('cH'), cM = $('cM'), cS = $('cS');
+const cDate = $('cDate'), cWeek = $('cWeek');
+
+const MODES = {
+  read: {
+    name: '读书模式', icon: '📖', title: '早读分贝监测台',
+    sub: '读书模式', label: '读书模式',
+    min: 105, max: 110,
+    voiceText: '请大声朗读',
+    voiceShort: '请大声朗读',
+    bannerLow: '🔊 请大声朗读',
+    bannerHigh: '⚠ 有点吵了',
+    soundLabel: '音量偏低时发出语音提醒',
+    tip: '轮盘范围会根据目标上下限自动调整：下限往下留 20 dB、上限往上留 15 dB。读书模式下偏低时语音提醒会催大家大声读。'
+  },
+  study: {
+    name: '自习模式', icon: '✍️', title: '自习安静监测台',
+    sub: '自习模式', label: '自习模式',
+    min: 40, max: 55,
+    voiceText: '有点吵了，请安静下来',
+    voiceShort: '有点吵了，请安静下来',
+    bannerLow: '✅ 非常安静',
+    bannerHigh: '⚠ 有点吵了，请安静下来',
+    soundLabel: '当前声音过大，请保持安静',
+    tip: '自习模式下超过上限会发出语音提醒，提醒保持安静。轮盘范围会自动适配安静环境，建议把下限设到 35–45 dB。'
+  }
+};
+
+const AUTO_INTERVAL_MS = 30000;
+
+const state = {
+  mode: 'read',
+  running: false,
+  offset: 100, smooth: 0.75,
+  display: 80, initialized: false, status: 'idle',
+  okMs: 0, lowMs: 0, highMs: 0, totalMs: 0, streakMs: 0,
+  peak: 0, sum: 0, count: 0,
+  lastVoice: 0, lowSince: 0, highSince: 0,
+  lastAutoMark: 0,
+  history: [],
+  marks: [],
+  configs: {
+    read:  { min: 105, max: 110, sound: true,  volume: 0.8 },
+    study: { min: 40,  max: 55,  sound: false, volume: 0.8 }
+  }
+};
+
+let audioCtx = null, analyser = null, stream = null, timeData = null, freqData = null;
+let lastFrame = performance.now(), lastSample = 0, lastUI = 0;
+
+function curMode(){ return MODES[state.mode]; }
+function curCfg(){ return state.configs[state.mode]; }
+function getMin(){ return curCfg().min; }
+function getMax(){ return curCfg().max; }
+function getVolume(){ return curCfg().volume; }
+
+function getGaugeRange(){
+  const gMin = Math.max(0, Math.floor(getMin() - 20));
+  const gMax = Math.ceil(getMax() + 15);
+  if(gMax - gMin < 30) return { gMin: Math.max(0, gMax - 30), gMax: gMax };
+  return { gMin, gMax };
+}
+
+const WEEK_CN = ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'];
+function updateClock(){
+  const d = new Date();
+  cH.textContent = String(d.getHours()).padStart(2,'0');
+  cM.textContent = String(d.getMinutes()).padStart(2,'0');
+  cS.textContent = String(d.getSeconds()).padStart(2,'0');
+  cDate.textContent = `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日`;
+  cWeek.textContent = WEEK_CN[d.getDay()];
+}
+
+function saveAll(){
+  try{
+    localStorage.setItem('zaodu-db-cfg-v18', JSON.stringify({
+      mode: state.mode, offset: state.offset, smooth: state.smooth, configs: state.configs
+    }));
+  }catch(e){}
+}
+function loadAll(){
+  try{
+    const s = JSON.parse(localStorage.getItem('zaodu-db-cfg-v18') || '{}');
+    if(typeof s.mode === 'string' && MODES[s.mode]) state.mode = s.mode;
+    if(typeof s.offset === 'number') state.offset = s.offset;
+    if(typeof s.smooth === 'number') state.smooth = s.smooth;
+    if(s.configs){
+      ['read','study'].forEach(m => {
+        if(s.configs[m]){
+          if(typeof s.configs[m].min === 'number') state.configs[m].min = s.configs[m].min;
+          if(typeof s.configs[m].max === 'number') state.configs[m].max = s.configs[m].max;
+          if(typeof s.configs[m].sound === 'boolean') state.configs[m].sound = s.configs[m].sound;
+          if(typeof s.configs[m].volume === 'number') state.configs[m].volume = s.configs[m].volume;
+        }
+      });
+    }
+  }catch(e){}
+}
+
+function fmtTime(ms){
+  const s = Math.floor(ms/1000);
+  return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+}
+function roundRect(ctx,x,y,w,h,r){
+  r = Math.min(r, Math.abs(w)/2, Math.abs(h)/2);
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+function fit(canvas){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(1, Math.round(rect.width));
+  const h = Math.max(1, Math.round(rect.height));
+  if(canvas.width !== w*dpr || canvas.height !== h*dpr){
+    canvas.width = w*dpr; canvas.height = h*dpr;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx, w, h};
+}
+function statusColor(){
+  return state.status === 'ok' ? '#22c55e'
+       : state.status === 'low' ? '#ef4444'
+       : state.status === 'high' ? '#f59e0b' : '#8b9bb8';
+}
+
+async function start(){
+  if(state.running) return;
+  btnStart.disabled = true;
+  try{
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      throw new Error('当前浏览器不支持麦克风采集');
+    }
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation:false, noiseSuppression:false, autoGainControl:false }
+    });
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    await audioCtx.resume();
+    const src = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.5;
+    src.connect(analyser);
+    timeData = new Float32Array(analyser.fftSize);
+    freqData = new Uint8Array(analyser.frequencyBinCount);
+
+    state.running = true;
+    state.initialized = false;
+    state.status = 'ok';
+    state.lastAutoMark = performance.now();
+    btnStart.textContent = '停止监测';
+    btnStart.classList.remove('primary');
+    btnStart.classList.add('danger');
+  }catch(err){
+    alert('无法访问麦克风：' + (err && err.message ? err.message : err) +
+      '\n\n请确认：\n1. 浏览器已允许麦克风权限；\n2. 页面通过 https 或 localhost 打开（直接双击 file:// 打开可能被浏览器拦截）。');
+  }finally{
+    btnStart.disabled = false;
+  }
+}
+
+function stop(){
+  state.running = false;
+  state.status = 'idle';
+  if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+  if(audioCtx){ try{ audioCtx.close(); }catch(e){} audioCtx = null; }
+  analyser = null;
+  try{ window.speechSynthesis && window.speechSynthesis.cancel(); }catch(e){}
+  btnStart.textContent = '开始监测';
+  btnStart.classList.remove('danger');
+  btnStart.classList.add('primary');
+  clearWarnClasses();
+  updateUI();
+}
+
+function speak(text){
+  const vol = clamp(getVolume(), 0, 1);
+  if(vol <= 0.01) return;
+  if(window.speechSynthesis){
+    try{
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'zh-CN';
+      u.rate = 1.0;
+      u.pitch = 1.05;
+      u.volume = vol;
+      const voices = window.speechSynthesis.getVoices();
+      const zhVoice = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('zh'));
+      if(zhVoice) u.voice = zhVoice;
+      window.speechSynthesis.speak(u);
+      return true;
+    }catch(e){}
+  }
+  beepLoud(vol);
+  return false;
+}
+
+function beepLoud(vol){
+  if(!audioCtx || audioCtx.state !== 'running') return;
+  vol = clamp(typeof vol === 'number' ? vol : getVolume(), 0, 1);
+  if(vol <= 0.01) return;
+  const peak = 0.55 * vol;
+  const t0 = audioCtx.currentTime;
+  const times = 3;
+  for(let i = 0; i < times; i++){
+    const d = i * 0.22;
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'square';
+    o.frequency.value = i === times - 1 ? 1050 : 780;
+    g.gain.setValueAtTime(0.0001, t0 + d);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + d + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.18);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(t0 + d);
+    o.stop(t0 + d + 0.24);
+  }
+}
+
+function clearWarnClasses(){
+  gaugeCard.classList.remove('warn-low','warn-high','warn-ok');
+  gaugeInner.classList.remove('warn-low','warn-high');
+}
+function applyWarnClasses(){
+  const on = state.running;
+  clearWarnClasses();
+  if(!on) return;
+  if(state.status === 'low'){
+    gaugeCard.classList.add('warn-low');
+    gaugeInner.classList.add('warn-low');
+    alertBanner.textContent = curMode().bannerLow || '⚠ 预警';
+  }else if(state.status === 'high'){
+    gaugeCard.classList.add('warn-high');
+    gaugeInner.classList.add('warn-high');
+    alertBanner.textContent = curMode().bannerHigh || '⚠ 预警';
+  }else if(state.status === 'ok'){
+    gaugeCard.classList.add('warn-ok');
+  }
+}
+
+function measure(dt, now){
+  analyser.getFloatTimeDomainData(timeData);
+  let sum = 0;
+  for(let i = 0; i < timeData.length; i++){
+    const v = timeData[i];
+    sum += v * v;
+  }
+  const rms = Math.sqrt(sum / timeData.length);
+  const dbfs = 20 * Math.log10(rms + 1e-9);
+  let raw = clamp(dbfs + state.offset, 0, 150);
+
+  if(!state.initialized){ state.display = raw; state.initialized = true; }
+
+  const k = Math.max(0.2, dt / 16.67);
+  const a = Math.pow(clamp(state.smooth, 0, 0.95), k);
+  state.display = state.display * a + raw * (1 - a);
+
+  const db = state.display;
+  const prev = state.status;
+  const mn = getMin(), mx = getMax();
+  state.status = db < mn ? 'low' : (db > mx ? 'high' : 'ok');
+
+  state.totalMs += dt;
+  if(state.status === 'ok'){
+    state.okMs += dt;
+    state.streakMs += dt;
+  }else{
+    if(state.status === 'low') state.lowMs += dt;
+    if(state.status === 'high') state.highMs += dt;
+    state.streakMs = 0;
+  }
+
+  if(prev !== state.status && prev !== 'idle' && state.running){
+    addMark(state.status, db, 'switch');
+  }
+  if(state.running && now - state.lastAutoMark >= AUTO_INTERVAL_MS){
+    state.lastAutoMark = now;
+    addMark(state.status, db, 'timer');
+  }
+
+  if(db > state.peak) state.peak = db;
+  state.sum += db; state.count++;
+
+  if(now - lastSample >= 100){
+    lastSample = now;
+    state.history.push(db);
+    if(state.history.length > 400) state.history.shift();
+  }
+
+  const cfg = curCfg();
+  const text = curMode().voiceText;
+  if(state.mode === 'read'){
+    if(state.status === 'low'){
+      if(!state.lowSince) state.lowSince = now;
+      else if(now - state.lowSince > 2500 && now - state.lastVoice > 12000){
+        state.lastVoice = now;
+        if(cfg.sound) speak(text);
+      }
+    }else{ state.lowSince = 0; }
+  }else{
+    if(state.status === 'high'){
+      if(!state.highSince) state.highSince = now;
+      else if(now - state.highSince > 1500 && now - state.lastVoice > 8000){
+        state.lastVoice = now;
+        if(cfg.sound) speak(text);
+      }
+    }else{ state.highSince = 0; }
+  }
+}
+
+function addMark(st, db, kind){
+  const label = { ok:'达标', low:'偏低', high:'偏高' }[st] || '未知';
+  const time = new Date().toLocaleTimeString('zh-CN', {hour12:false});
+  const tagText = kind === 'switch' ? '切换' : (kind === 'timer' ? '定时' : '');
+  state.marks.unshift({ time, label, db: Math.round(db), st, kind, tagText });
+  if(state.marks.length > 100) state.marks.pop();
+  renderMarks();
+}
+function renderMarks(){
+  const n = state.marks.length;
+  const okN = state.marks.filter(m => m.st === 'ok').length;
+  const badN = n - okN;
+  markSum.innerHTML = `共 ${n} 次 · <span style="color:#4ade80">达标 ${okN}</span> · <span style="color:#f87171">不达标 ${badN}</span>`;
+
+  if(!n){
+    marksBox.innerHTML = '<div style="color:#6f7f9c;font-size:12px;text-align:center;padding:16px">暂无记录</div>';
+    return;
+  }
+  marksBox.innerHTML = state.marks.map(m => `
+    <div class="mark ${m.st}">
+      <span><span class="t">${m.time}</span><span class="tag">${m.tagText}</span> · <b style="color:${m.st==='ok'?'#4ade80':m.st==='low'?'#f87171':'#fbbf24'}">${m.label}</b></span>
+      <span><b>${m.db}</b> dB</span>
+    </div>
+  `).join('');
+}
+
+function drawGauge(){
+  const {ctx, w, h} = fit(gaugeCanvas);
+  ctx.clearRect(0, 0, w, h);
+  const { gMin, gMax } = getGaugeRange();
+  const range = Math.max(1, gMax - gMin);
+  const mn = getMin(), mx = getMax();
+  const cx = w / 2, cy = h * 0.52;
+  const R = Math.min(w * 0.40, h * 0.37);
+  const lw = Math.max(12, R * 0.17);
+  const A0 = Math.PI * 0.75, A1 = Math.PI * 2.25;
+  const ang = v => A0 + (clamp(v, gMin, gMax) - gMin) / range * (A1 - A0);
+
+  ctx.lineCap = 'round'; ctx.lineWidth = lw;
+  ctx.strokeStyle = 'rgba(255,255,255,.055)';
+  ctx.beginPath(); ctx.arc(cx, cy, R, A0, A1); ctx.stroke();
+
+  const seg = (a, b, color) => {
+    if(b <= a) return;
+    ctx.beginPath(); ctx.strokeStyle = color;
+    ctx.arc(cx, cy, R, ang(a), ang(b)); ctx.stroke();
+  };
+  seg(gMin, mn, 'rgba(239,68,68,.32)');
+  seg(mn, mx, 'rgba(34,197,94,.40)');
+  seg(mx, gMax, 'rgba(245,158,11,.32)');
+
+  if(state.running && state.status !== 'idle'){
+    const color = statusColor();
+    ctx.save(); ctx.shadowColor = color; ctx.shadowBlur = 20;
+    ctx.strokeStyle = color;
+    ctx.beginPath(); ctx.arc(cx, cy, R, A0, ang(state.display)); ctx.stroke();
+    ctx.restore();
+
+    const p = ang(state.display);
+    ctx.save(); ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(p) * R, cy + Math.sin(p) * R, Math.max(4, lw * 0.30), 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff'; ctx.fill();
+    ctx.restore();
+  }
+
+  if(R > 95){
+    ctx.font = '500 11px system-ui,sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    let step = 10;
+    if(range <= 25) step = 5;
+    else if(range > 70) step = 20;
+    const start = Math.ceil(gMin / step) * step;
+    for(let v = start; v <= gMax; v += step){
+      const a = ang(v);
+      const r1 = R - lw / 2 - 6, r2 = R - lw / 2 - 13;
+      ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 1.5;
+      ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+      ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,.32)';
+      const rt = R - lw / 2 - 26;
+      ctx.fillText(String(v), cx + Math.cos(a) * rt, cy + Math.sin(a) * rt);
+    }
+  }
+}
+function drawBars(){
+  const {ctx, w, h} = fit(barsCanvas);
+  ctx.clearRect(0, 0, w, h);
+  const N = 40, gap = 2;
+  const bw = (w - gap * (N - 1)) / N;
+  for(let i = 0; i < N; i++){
+    let v = 0;
+    if(freqData){
+      const idx = Math.min(freqData.length - 1, Math.floor(Math.pow(i / N, 1.45) * freqData.length * 0.72));
+      v = freqData[idx] / 255;
+    }
+    const bh = Math.max(2, v * h * 0.98);
+    const x = i * (bw + gap);
+    const y = h - bh;
+    const hue = 200 - v * 115;
+    ctx.fillStyle = `hsl(${hue} 88% ${44 + v * 22}%)`;
+    roundRect(ctx, x, y, bw, bh, Math.min(bw / 2, 3));
+    ctx.fill();
+  }
+}
+function drawTrend(){
+  const {ctx, w, h} = fit(trendCanvas);
+  ctx.clearRect(0, 0, w, h);
+  const { gMin, gMax } = getGaugeRange();
+  const range = Math.max(1, gMax - gMin);
+  const mn = getMin(), mx = getMax();
+  const y = v => h - (clamp(v, gMin, gMax) - gMin) / range * h;
+
+  ctx.fillStyle = 'rgba(34,197,94,.12)';
+  ctx.fillRect(0, y(mx), w, Math.max(1, y(mn) - y(mx)));
+
+  ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(34,197,94,.38)';
+  ctx.beginPath();
+  ctx.moveTo(0, y(mn)); ctx.lineTo(w, y(mn));
+  ctx.moveTo(0, y(mx)); ctx.lineTo(w, y(mx));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const H = state.history;
+  if(H.length < 2) return;
+  const MAXP = 300;
+  const arr = H.length > MAXP ? H.slice(H.length - MAXP) : H;
+  const n = arr.length;
+  const stepX = w / (MAXP - 1);
+  const x = i => w - (n - 1 - i) * stepX;
+
+  ctx.beginPath();
+  ctx.moveTo(x(0), h);
+  for(let i = 0; i < n; i++) ctx.lineTo(x(i), y(arr[i]));
+  ctx.lineTo(x(n - 1), h);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, 'rgba(56,189,248,.30)');
+  g.addColorStop(1, 'rgba(56,189,248,0)');
+  ctx.fillStyle = g; ctx.fill();
+
+  ctx.beginPath();
+  for(let i = 0; i < n; i++){
+    const px = x(i), py = y(arr[i]);
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  const lx = x(n - 1), ly = y(arr[n - 1]);
+  ctx.beginPath(); ctx.arc(lx, ly, 3.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#ffffff'; ctx.fill();
+}
+
+function updateUI(){
+  const on = state.running;
+  const isStudy = state.mode === 'study';
+  dbText.textContent = on ? Math.round(state.display) : '--';
+  dbValue.style.color = on ? statusColor() : '#e8eefc';
+
+  const map = isStudy ? {
+    low:  ['很安静',   '非常安静，继续保持 👍', 'ok'],
+    ok:   ['安静达标', '保持安静，专心自习 ✍️', 'ok'],
+    high: ['音量偏高', '有点吵了，请安静下来', 'high'],
+    idle: ['未开始',   '点击「开始监测」，并允许使用麦克风', 'idle']
+  } : {
+    low:  ['音量偏低', '请大声朗读', 'low'],
+    ok:   ['达标中',   '很棒！保持这个音量 👏',   'ok'],
+    high: ['音量偏高', '有点吵了，请安静下来', 'high'],
+    idle: ['未开始',   '点击「开始监测」，并允许使用麦克风', 'idle']
+  };
+
+  let st = on ? state.status : 'idle';
+  const [badgeTxt, hintTxt, cls] = map[st] || map.idle;
+
+  statusBadge.textContent = badgeTxt;
+  statusBadge.className = 'badge ' + (on ? (isStudy ? (st === 'high' ? 'high' : 'ok') : st) : 'idle');
+  hintText.textContent = hintTxt;
+  hintText.className = 'hint ' + (on ? cls : 'idle');
+
+  rateText.textContent = state.totalMs > 500 ? Math.round(state.okMs / state.totalMs * 100) + '%' : '--';
+  streakText.textContent = fmtTime(state.streakMs);
+  peakText.textContent = state.peak > 0 ? Math.round(state.peak) + ' dB' : '--';
+  avgText.textContent = state.count > 0 ? Math.round(state.sum / state.count) + ' dB' : '--';
+
+  const badMs = state.lowMs + state.highMs;
+  const total = Math.max(1, state.totalMs);
+
+  okDur.textContent = fmtTime(state.okMs);
+  lowDur.textContent = fmtTime(state.lowMs);
+  highDur.textContent = fmtTime(state.highMs);
+  okBar.style.width = (state.okMs / total * 100) + '%';
+  lowBar.style.width = (state.lowMs / total * 100) + '%';
+  highBar.style.width = (state.highMs / total * 100) + '%';
+
+  cmpOk.textContent = fmtTime(state.okMs);
+  cmpBad.textContent = fmtTime(badMs);
+  cmpOkPct.textContent = '占比 ' + (state.totalMs > 500 ? Math.round(state.okMs / total * 100) + '%' : '--');
+  cmpBadPct.textContent = '占比 ' + (state.totalMs > 500 ? Math.round(badMs / total * 100) + '%' : '--');
+
+  sumOk.style.width = (state.okMs / total * 100) + '%';
+  sumLow.style.width = (state.lowMs / total * 100) + '%';
+  sumHigh.style.width = (state.highMs / total * 100) + '%';
+
+  lgOk.textContent = fmtTime(state.okMs);
+  lgLow.textContent = fmtTime(state.lowMs);
+  lgHigh.textContent = fmtTime(state.highMs);
+  lgTotal.textContent = fmtTime(state.totalMs);
+
+  if(isStudy){
+    okDur.previousElementSibling.innerHTML = '<span style="color:#4ade80">✅ 安静/达标</span>';
+  }else{
+    okDur.previousElementSibling.innerHTML = '<span style="color:#4ade80">✅ 达标时长</span>';
+  }
+
+  applyWarnClasses();
+}
+
+function switchMode(newMode){
+  if(!MODES[newMode]) return;
+  if(state.mode === newMode) return;
+  state.mode = newMode;
+  const cfg = curMode();
+  const c = curCfg();
+  if(state.running) stop();
+
+  state.okMs = 0; state.lowMs = 0; state.highMs = 0;
+  state.totalMs = 0; state.streakMs = 0;
+  state.peak = 0; state.sum = 0; state.count = 0;
+  state.history = []; state.marks = [];
+  state.lowSince = 0; state.highSince = 0; state.lastVoice = 0;
+  state.lastAutoMark = 0;
+  state.initialized = false;
+  state.status = 'idle';
+
+  pageTitle.textContent = cfg.title;
+  logoIcon.textContent = cfg.icon;
+  modeLabel.textContent = cfg.label;
+  soundLabel.textContent = cfg.soundLabel;
+  tipText.textContent = cfg.tip;
+  document.title = cfg.title;
+
+  modeRead.classList.toggle('active', newMode === 'read');
+  modeStudy.classList.toggle('active', newMode === 'study');
+  if(newMode === 'study'){
+    modeStudy.classList.add('study');
+    modeRead.classList.remove('study');
+  }else{
+    modeRead.classList.add('study');
+    modeStudy.classList.remove('study');
+  }
+
+  minRange.value = c.min;
+  maxRange.value = c.max;
+  offsetRange.value = state.offset;
+  smoothRange.value = state.smooth;
+  soundSwitch.classList.toggle('on', c.sound);
+  volRange.value = Math.round(c.volume * 100);
+  volVal.textContent = Math.round(c.volume * 100) + '%';
+
+  clearWarnClasses();
+  syncLabels(); renderMarks(); updateUI(); saveAll();
+}
+
+function tick(now){
+  requestAnimationFrame(tick);
+  const dt = Math.min(120, now - lastFrame);
+  lastFrame = now;
+  if(state.running && analyser) measure(dt, now);
+  drawGauge(); drawBars(); drawTrend();
+  if(now - lastUI > 100){ lastUI = now; updateUI(); }
+}
+
+function syncLabels(){
+  const c = curCfg();
+  const m = curMode();
+  minVal.textContent = c.min + ' dB';
+  maxVal.textContent = c.max + ' dB';
+  offsetVal.textContent = state.offset;
+  smoothVal.textContent = Math.round(state.smooth * 100) + '%';
+  volVal.textContent = Math.round(c.volume * 100) + '%';
+  volModeName.textContent = (state.mode === 'read') ? '读书' : '自习';
+  volHint.textContent = '内容：' + m.voiceShort;
+  rangeTip.textContent = c.min + '–' + c.max + ' dB';
+}
+
+minRange.addEventListener('input', () => {
+  const c = curCfg();
+  let v = +minRange.value;
+  if(v > c.max - 1){ v = c.max - 1; minRange.value = v; }
+  if(v < 30){ v = 30; minRange.value = v; }
+  c.min = v; syncLabels(); saveAll();
+});
+maxRange.addEventListener('input', () => {
+  const c = curCfg();
+  let v = +maxRange.value;
+  if(v < c.min + 1){ v = c.min + 1; maxRange.value = v; }
+  if(v > 140){ v = 140; maxRange.value = v; }
+  c.max = v; syncLabels(); saveAll();
+});
+offsetRange.addEventListener('input', () => { state.offset = +offsetRange.value; syncLabels(); saveAll(); });
+smoothRange.addEventListener('input', () => { state.smooth = +smoothRange.value; syncLabels(); saveAll(); });
+
+volRange.addEventListener('input', () => {
+  const c = curCfg();
+  c.volume = clamp(+volRange.value / 100, 0, 1);
+  volVal.textContent = Math.round(c.volume * 100) + '%';
+  saveAll();
+});
+
+btnTestVoice.addEventListener('click', () => {
+  if(!audioCtx){
+    try{ audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){}
+  }
+  if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  speak(curMode().voiceText);
+  btnTestVoice.textContent = '🔊 播放中…';
+  setTimeout(() => { btnTestVoice.textContent = '▶ 试听提示音'; }, 1600);
+});
+
+soundSwitch.addEventListener('click', () => {
+  const c = curCfg(); c.sound = !c.sound;
+  soundSwitch.classList.toggle('on', c.sound); saveAll();
+});
+btnStart.addEventListener('click', () => { state.running ? stop() : start(); });
+btnReset.addEventListener('click', () => {
+  state.okMs = 0; state.lowMs = 0; state.highMs = 0;
+  state.totalMs = 0; state.streakMs = 0;
+  state.peak = 0; state.sum = 0; state.count = 0;
+  state.history = []; state.marks = [];
+  state.lowSince = 0; state.highSince = 0; state.lastVoice = 0;
+  state.lastAutoMark = performance.now();
+  renderMarks(); updateUI();
+});
+btnFull.addEventListener('click', () => {
+  if(!document.fullscreenElement){
+    (document.documentElement.requestFullscreen || (()=>{})).call(document.documentElement);
+  }else{ document.exitFullscreen(); }
+});
+modeRead.addEventListener('click', () => switchMode('read'));
+modeStudy.addEventListener('click', () => switchMode('study'));
+
+/* ======================================================
+   摄像头：内嵌取景器 + 手动拍照/录像 + 每10分钟随机捕捉
+====================================================== */
+const btnCamToggle = $('btnCamToggle');
+const camViewer = $('camViewer');
+const camVideo = $('camVideo');
+const camControls = $('camControls');
+const camStatus = $('camStatus');
+const camTimeEl = $('camTime');
+const camRecBadge = $('camRecBadge'), camRecTime = $('camRecTime');
+const btnCapture = $('btnCapture');
+const btnRecord = $('btnRecord');
+const btnSwitch = $('btnSwitch');
+const btnFullscreen = $('btnFullscreen');
+const shutterFlash = $('shutterFlash');
+const thumbStrip = $('thumbStrip');
+
+const AUTO_CAPTURE_INTERVAL = 10 * 60 * 1000;  // 10 分钟
+const AUTO_PHOTO_COUNT = 9;                     // ★ 自动拍 9 张
+const AUTO_PHOTO_GAP_MIN = 500;                 // ★ 随机间隔最小 0.5 秒
+const AUTO_PHOTO_GAP_MAX = 3000;                // ★ 随机间隔最大 3 秒
+const AUTO_VIDEO_DURATION = 60 * 1000;          // ★ 自动录 60 秒
+const AUTO_VIDEO_DELAY_MIN = 0;                 // ★ 录像前随机延迟最小 0 秒
+const AUTO_VIDEO_DELAY_MAX = 8000;              // ★ 录像前随机延迟最大 8 秒
+
+const camState = {
+  active: false,
+  facing: 'user',
+  recording: false,
+  mediaRecorder: null,
+  chunks: [],
+  recStartTime: 0,
+  recTimer: null,
+  clockTimer: null,
+  autoTimer: null,
+  autoStopTimer: null,
+  thumbs: [],
+  autoRunning: false
+};
+
+async function toggleCam(){
+  if(camState.active) stopCam();
+  else await startCam();
+}
+
+async function startCam(){
+  try{
+    const s = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: camState.facing,
+        width: { ideal: 1280 },
+        height: { ideal: 960 }
+      },
+      audio: false
+    });
+    camState.stream = s;
+    camVideo.srcObject = s;
+    if(camState.facing === 'user') camVideo.classList.remove('no-mirror');
+    else camVideo.classList.add('no-mirror');
+    camState.active = true;
+    camViewer.classList.add('show');
+    camControls.style.display = 'flex';
+    btnCamToggle.innerHTML = '<span class="ico">⏹</span>关闭摄像头';
+    btnCamToggle.classList.add('stop');
+    camStatus.innerHTML = '摄像头已启动 · <span class="auto">每 10 分钟随机拍 9 张 + 录 60 秒</span>';
+    startCamClock();
+    startAutoCapture();
+  }catch(err){
+    camStatus.innerHTML = '❌ 无法访问摄像头：' + (err && err.message ? err.message : err) +
+      '<br>请确认已允许摄像头权限，或使用 https / localhost 打开。';
+  }
+}
+
+function stopCam(){
+  stopRecording(true);
+  stopAutoCapture();
+  stopCamClock();
+  if(camState.stream){
+    camState.stream.getTracks().forEach(t => t.stop());
+    camState.stream = null;
+  }
+  camVideo.srcObject = null;
+  camState.active = false;
+  camViewer.classList.remove('show');
+  camViewer.classList.remove('fullscreen');
+  document.body.classList.remove('cam-fullscreen-active');
+  camControls.style.display = 'none';
+  btnCamToggle.innerHTML = '<span class="ico">📷</span>启动摄像头';
+  btnCamToggle.classList.remove('stop');
+  camStatus.innerHTML = '点「启动摄像头」后开启自动捕捉<br><span class="auto">每 10 分钟随机拍 9 张 + 录 60 秒</span>';
+}
+
+async function switchCam(){
+  camState.facing = camState.facing === 'user' ? 'environment' : 'user';
+  if(camState.active){
+    stopRecording(true);
+    if(camState.stream){
+      camState.stream.getTracks().forEach(t => t.stop());
+      camState.stream = null;
+    }
+    await startCam();
+  }
+}
+
+function startCamClock(){
+  stopCamClock();
+  const update = () => {
+    const d = new Date();
+    camTimeEl.textContent = String(d.getHours()).padStart(2,'0') + ':' +
+      String(d.getMinutes()).padStart(2,'0') + ':' +
+      String(d.getSeconds()).padStart(2,'0');
+  };
+  update();
+  camState.clockTimer = setInterval(update, 1000);
+}
+function stopCamClock(){
+  if(camState.clockTimer){ clearInterval(camState.clockTimer); camState.clockTimer = null; }
+}
+
+function stampName(ext){
+  const d = new Date();
+  const p = n => String(n).padStart(2,'0');
+  return `抓拍_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}_${Math.floor(Math.random()*1000)}.${ext}`;
+}
+
+function downloadBlob(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/* 单张抓拍 */
+function doCapture(){
+  return new Promise(resolve => {
+    if(!camState.stream){ resolve(false); return; }
+    const vw = camVideo.videoWidth, vh = camVideo.videoHeight;
+    if(!vw || !vh){ resolve(false); return; }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = vw;
+    canvas.height = vh;
+    const ctx = canvas.getContext('2d');
+
+    if(camState.facing === 'user'){
+      ctx.translate(vw, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(camVideo, 0, 0, vw, vh);
+
+    shutterFlash.classList.remove('fire');
+    void shutterFlash.offsetWidth;
+    shutterFlash.classList.add('fire');
+
+    canvas.toBlob(blob => {
+      if(!blob){ resolve(false); return; }
+      downloadBlob(blob, stampName('png'));
+
+      const url = URL.createObjectURL(blob);
+      const img = document.createElement('img');
+      img.className = 'thumb';
+      img.src = url;
+      img.title = '点击在新窗口查看';
+      img.onclick = () => window.open(url, '_blank');
+      thumbStrip.prepend(img);
+      camState.thumbs.unshift(img);
+      while(camState.thumbs.length > 12){
+        const last = camState.thumbs.pop();
+        if(last && last.parentNode) last.parentNode.removeChild(last);
+      }
+      resolve(true);
+    }, 'image/png');
+  });
+}
+
+/* 录像 */
+function toggleRecording(){
+  if(camState.recording) stopRecording();
+  else startRecording(0);  // 手动，不限时
+}
+
+function startRecording(autoStopMs){
+  if(!camState.stream || camState.recording) return;
+  try{
+    camState.chunks = [];
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9'
+      : (MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+        ? 'video/webm;codecs=vp8'
+        : 'video/webm');
+    camState.mediaRecorder = new MediaRecorder(camState.stream, { mimeType });
+    camState.mediaRecorder.ondataavailable = e => {
+      if(e.data && e.data.size > 0) camState.chunks.push(e.data);
+    };
+    camState.mediaRecorder.onstop = () => {
+      if(camState.chunks.length){
+        const blob = new Blob(camState.chunks, { type: 'video/webm' });
+        downloadBlob(blob, stampName('webm'));
+      }
+    };
+    camState.mediaRecorder.start(1000);
+    camState.recording = true;
+    camState.recStartTime = Date.now();
+
+    btnRecord.textContent = '⏹ 停止';
+    btnRecord.classList.add('stop');
+    camRecBadge.classList.add('show');
+
+    camState.recTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - camState.recStartTime) / 1000);
+      camRecTime.textContent = String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
+    }, 500);
+
+    if(autoStopMs && autoStopMs > 0){
+      camState.autoStopTimer = setTimeout(() => {
+        if(camState.recording) stopRecording(true);
+      }, autoStopMs);
+    }
+  }catch(err){
+    camStatus.innerHTML = '❌ 录像失败：' + (err && err.message ? err.message : err);
+  }
+}
+
+function stopRecording(silent){
+  if(camState.autoStopTimer){ clearTimeout(camState.autoStopTimer); camState.autoStopTimer = null; }
+  if(camState.recTimer){ clearInterval(camState.recTimer); camState.recTimer = null; }
+  if(camState.mediaRecorder && camState.recording){
+    try{ camState.mediaRecorder.stop(); }catch(e){}
+  }
+  camState.recording = false;
+  camRecBadge.classList.remove('show');
+  btnRecord.textContent = '⏺ 录像';
+  btnRecord.classList.remove('stop');
+  camRecTime.textContent = '00:00';
+  if(!silent){
+    camStatus.innerHTML = '✅ 录像已保存并开始下载';
+  }
+}
+
+/* 自动捕捉：立即一次 + 每 10 分钟一次 */
+function startAutoCapture(){
+  stopAutoCapture();
+  runAutoCapture();
+  camState.autoTimer = setInterval(runAutoCapture, AUTO_CAPTURE_INTERVAL);
+}
+
+function stopAutoCapture(){
+  if(camState.autoTimer){ clearInterval(camState.autoTimer); camState.autoTimer = null; }
+  camState.autoRunning = false;
+}
+
+/* 执行一次随机捕捉：随机间隔拍 9 张 + 延迟后录 60 秒 */
+async function runAutoCapture(){
+  if(camState.autoRunning) return;
+  if(!camState.active || !camState.stream) return;
+  camState.autoRunning = true;
+
+  const t0 = new Date().toLocaleTimeString('zh-CN', {hour12:false});
+  camStatus.innerHTML = `🤖 <span class="auto">随机捕捉中…</span> 拍 9 张（${t0}）`;
+
+  // 1) 随机间隔拍 9 张
+  for(let i = 0; i < AUTO_PHOTO_COUNT; i++){
+    await doCapture();
+    if(i < AUTO_PHOTO_COUNT - 1){
+      // 随机间隔 0.5–3 秒
+      const gap = rand(AUTO_PHOTO_GAP_MIN, AUTO_PHOTO_GAP_MAX);
+      camStatus.innerHTML = `🤖 <span class="auto">随机捕捉 ${i+1}/${AUTO_PHOTO_COUNT}</span> · 下一张 ${(gap/1000).toFixed(1)}s 后`;
+      await new Promise(r => setTimeout(r, gap));
+    }
+  }
+
+  // 2) 随机延迟后录 60 秒
+  const delay = rand(AUTO_VIDEO_DELAY_MIN, AUTO_VIDEO_DELAY_MAX);
+  if(delay > 500){
+    camStatus.innerHTML = `🎥 <span class="auto">${(delay/1000).toFixed(1)}s 后开始录像…</span>`;
+    await new Promise(r => setTimeout(r, delay));
+  }
+  camStatus.innerHTML = `🎥 <span class="auto">随机录像中… 60 秒</span>`;
+  startRecording(AUTO_VIDEO_DURATION);
+
+  await new Promise(r => setTimeout(r, AUTO_VIDEO_DURATION + 1000));
+
+  camStatus.innerHTML = `✅ <span class="auto">随机捕捉完成</span> · 9 张照片 + 60 秒视频已保存`;
+  camState.autoRunning = false;
+}
+
+/* 全屏取景器（修复 bug） */
+function toggleFullscreen(){
+  const isFs = camViewer.classList.toggle('fullscreen');
+  btnFullscreen.textContent = isFs ? '✕' : '⛶';
+  document.body.classList.toggle('cam-fullscreen-active', isFs);
+}
+
+/* 事件绑定 */
+btnCamToggle.addEventListener('click', toggleCam);
+btnCapture.addEventListener('click', () => doCapture());
+btnRecord.addEventListener('click', () => toggleRecording());
+btnSwitch.addEventListener('click', switchCam);
+btnFullscreen.addEventListener('click', toggleFullscreen);
+
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && camViewer.classList.contains('fullscreen')){
+    toggleFullscreen();
+  }
+});
+
+/* ======================================================
+   随机点名逻辑
+====================================================== */
+const rollNames = $('rollNames');
+const rollHint = $('rollHint');
+const btnRoll = $('btnRoll');
+const btnResetRoll = $('btnResetRoll');
+const btnResetRoll2 = $('btnResetRoll2');
+const rosterText = $('rosterText');
+const rosterCount = $('rosterCount');
+const remainCount = $('remainCount');
+const btnSaveRoster = $('btnSaveRoster');
+const btnGenRoster = $('btnGenRoster');
+const btnClearRoster = $('btnClearRoster');
+const rollCount = $('rollCount');
+const rollHistory = $('rollHistory');
+const btnClearHistory = $('btnClearHistory');
+
+const ROLL_KEY = 'zaodu-roll-v5';
+
+const DEFAULT_ROSTER = [
+  '陈建哲','冯昊楠','郭知博','何帅杰','胡凯森','胡茂森','黄逸臣','贾世杰','江宇烁','蒋沛峰',
+  '李昶锐','李锦帅','李聚鑫','李坤锋','李明柯','李元丰','李子敬','李自垄','刘奎玺','刘坤朋',
+  '刘泽远','刘振亚','刘振洋','娄煌锦','鲁士豪','马鑫晨','马垭涵','孟炳勋','牛楚翔','彭博林',
+  '史添晓','唐灿杰','王麒森','王世杰','王梓梦','卫佳硕','杨铭皓','姚俊杰','张恩博','张高扬',
+  '张航旗','张浩博','张活石','张锦浩','张宁','张同乐','张文铭','张宇翔','赵梦飞','赵鑫磊',
+  '周文杰','朱文彬'
+];
+
+const rollState = {
+  roster: DEFAULT_ROSTER.slice(),
+  history: [],
+  hasRolled: false,
+  rolling: false
+};
+
+function saveHistoryOnly(){
+  try{
+    localStorage.setItem(ROLL_KEY, JSON.stringify({
+      history: rollState.history
+    }));
+  }catch(e){}
+}
+function loadHistoryOnly(){
+  try{
+    const s = JSON.parse(localStorage.getItem(ROLL_KEY) || '{}');
+    if(Array.isArray(s.history)) rollState.history = s.history;
+  }catch(e){}
+}
+
+function resetRosterSilent(){
+  rollState.roster = DEFAULT_ROSTER.slice();
+  rollState.hasRolled = false;
+  rollState.rolling = false;
+  rollNames.classList.remove('size-2','size-3','size-4','size-5');
+  rollNames.classList.add('size-1');
+  rollNames.textContent = '准备就绪';
+  rollNames.style.color = '#e8eefc';
+  rollHint.textContent = '点击下方按钮开始抽取';
+  renderRoster();
+  renderHistory();
+}
+
+function renderRoster(){
+  rosterText.value = rollState.roster.join('\n');
+  updateRosterCount();
+  updateRemainCount();
+  updateRollButton();
+}
+function updateRosterCount(){
+  rosterCount.textContent = rollState.roster.length + ' 人';
+}
+function updateRemainCount(){
+  remainCount.textContent = rollState.roster.length + ' 人';
+}
+function updateRollButton(){
+  if(!rollState.roster.length){
+    btnRoll.disabled = true;
+    btnRoll.textContent = '已抽完';
+    btnResetRoll.style.display = 'inline-block';
+    return;
+  }
+  if(rollState.hasRolled){
+    btnRoll.disabled = false;
+    btnRoll.textContent = '继续抽取';
+    btnResetRoll.style.display = 'inline-block';
+  }else{
+    btnRoll.disabled = false;
+    btnRoll.textContent = '开始抽取';
+    btnResetRoll.style.display = 'none';
+  }
+}
+function renderHistory(){
+  if(!rollState.history.length){
+    rollHistory.innerHTML = '<div class="roll-empty">暂无记录</div>';
+    return;
+  }
+  rollHistory.innerHTML = rollState.history.map(h => `
+    <div class="hist-item">
+      <span class="h-time">${h.time}</span>
+      <span class="h-name">${h.names.join('、')}</span>
+    </div>
+  `).join('');
+}
+
+function applyNameSize(n){
+  rollNames.classList.remove('size-1','size-2','size-3','size-4','size-5');
+  if(n <= 1) rollNames.classList.add('size-1');
+  else if(n === 2) rollNames.classList.add('size-2');
+  else if(n === 3) rollNames.classList.add('size-3');
+  else if(n === 4) rollNames.classList.add('size-4');
+  else rollNames.classList.add('size-5');
+}
+
+function doRoll(){
+  if(rollState.rolling) return;
+  if(!rollState.roster.length){
+    alert('名单已抽完，请点「重置名单」恢复。');
+    return;
+  }
+
+  rollState.rolling = true;
+  btnRoll.disabled = true;
+
+  let n = clamp(parseInt(rollCount.value) || 1, 1, 10);
+  n = Math.min(n, rollState.roster.length);
+
+  const pool = rollState.roster.slice();
+  const picked = [];
+  for(let i = 0; i < n; i++){
+    const idx = Math.floor(Math.random() * pool.length);
+    picked.push(pool.splice(idx, 1)[0]);
+  }
+
+  rollNames.classList.add('rolling');
+  const tempName = picked[Math.floor(Math.random() * picked.length)];
+  rollNames.textContent = tempName;
+
+  setTimeout(() => {
+    picked.forEach(name => {
+      const i = rollState.roster.indexOf(name);
+      if(i >= 0) rollState.roster.splice(i, 1);
+    });
+
+    applyNameSize(picked.length);
+    rollNames.classList.remove('rolling');
+    rollNames.textContent = picked.join(' · ');
+    rollNames.style.color = '#a78bfa';
+
+    rollState.rolling = false;
+    rollState.hasRolled = true;
+
+    rollState.history.unshift({
+      time: new Date().toLocaleTimeString('zh-CN', {hour12:false}),
+      names: picked
+    });
+    if(rollState.history.length > 50) rollState.history.pop();
+
+    renderRoster();
+    renderHistory();
+    updateRollButton();
+
+    const remain = rollState.roster.length;
+    if(remain === 0){
+      rollHint.textContent = `本次抽中 ${picked.length} 人 · 名单已抽完 🎉`;
+    }else{
+      rollHint.textContent = `本次抽中 ${picked.length} 人 · 剩余 ${remain} 人`;
+    }
+    saveHistoryOnly();
+  }, 100);
+}
+
+function resetRoll(){
+  if(!confirm('重置名单？将恢复为默认的 52 人名单，并清空已抽记录。')){
+    return;
+  }
+  resetRosterSilent();
+}
+
+btnRoll.addEventListener('click', doRoll);
+btnResetRoll.addEventListener('click', resetRoll);
+btnResetRoll2.addEventListener('click', resetRoll);
+
+btnSaveRoster.addEventListener('click', () => {
+  const lines = rosterText.value.split('\n').map(s => s.trim()).filter(Boolean);
+  if(!lines.length){
+    alert('名单不能为空');
+    return;
+  }
+  rollState.roster = lines;
+  rollState.hasRolled = false;
+  renderRoster();
+  updateRollButton();
+  rollHint.textContent = '名单已保存，共 ' + lines.length + ' 人';
+});
+
+btnGenRoster.addEventListener('click', () => {
+  if(confirm('恢复为默认的 52 人名单？当前名单将被替换。')){
+    resetRosterSilent();
+  }
+});
+
+btnClearRoster.addEventListener('click', () => {
+  if(confirm('清空全部名单？')){
+    rollState.roster = [];
+    rollState.hasRolled = false;
+    renderRoster();
+    updateRollButton();
+  }
+});
+
+rollCount.addEventListener('input', () => {
+  let v = parseInt(rollCount.value) || 1;
+  v = clamp(v, 1, 10);
+  rollCount.value = v;
+});
+
+btnClearHistory.addEventListener('click', () => {
+  if(confirm('清空抽取历史？')){
+    rollState.history = [];
+    renderHistory();
+    saveHistoryOnly();
+  }
+});
+
+/* ======================================================
+   初始化
+====================================================== */
+loadAll();
+(function applyInit(){
+  const m = state.mode;
+  const c = state.configs[m];
+  const cfg = MODES[m];
+  pageTitle.textContent = cfg.title;
+  logoIcon.textContent = cfg.icon;
+  modeLabel.textContent = cfg.label;
+  soundLabel.textContent = cfg.soundLabel;
+  tipText.textContent = cfg.tip;
+  document.title = cfg.title;
+  modeRead.classList.toggle('active', m === 'read');
+  modeStudy.classList.toggle('active', m === 'study');
+  minRange.value = c.min;
+  maxRange.value = c.max;
+  offsetRange.value = state.offset;
+  smoothRange.value = state.smooth;
+  soundSwitch.classList.toggle('on', c.sound);
+  volRange.value = Math.round(c.volume * 100);
+  volVal.textContent = Math.round(c.volume * 100) + '%';
+})();
+
+syncLabels();
+renderMarks();
+updateUI();
+updateClock();
+setInterval(updateClock, 1000);
+requestAnimationFrame(tick);
+
+loadHistoryOnly();
+resetRosterSilent();
+
+if(window.speechSynthesis){
+  window.speechSynthesis.onvoiceschanged = () => {
+    window.speechSynthesis.getVoices();
+  };
+}
+</script>
+</body>
+</html>
